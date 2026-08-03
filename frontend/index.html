@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>RAG Chatbot</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --panel: #171a23;
+    --border: #2a2e3a;
+    --text: #e8e9ee;
+    --muted: #9a9fae;
+    --accent: #6c8cff;
+    --accent-dim: #2c3560;
+    --user-bubble: #2c3560;
+    --bot-bubble: #1f2330;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    height: 100vh;
+    display: flex;
+  }
+  #sidebar {
+    width: 300px;
+    background: var(--panel);
+    border-right: 1px solid var(--border);
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+  }
+  #sidebar h2 {
+    font-size: 15px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--muted);
+    margin: 0 0 12px 0;
+  }
+  #uploadBox {
+    border: 2px dashed var(--border);
+    border-radius: 10px;
+    padding: 20px;
+    text-align: center;
+    cursor: pointer;
+    margin-bottom: 20px;
+    transition: border-color 0.2s;
+  }
+  #uploadBox:hover { border-color: var(--accent); }
+  #uploadBox input { display: none; }
+  #docList { list-style: none; padding: 0; margin: 0; flex: 1; overflow-y: auto; }
+  #docList li {
+    background: var(--bot-bubble);
+    border-radius: 8px;
+    padding: 10px 12px;
+    margin-bottom: 8px;
+    font-size: 13px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+  }
+  #docList li .fname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #docList li .chunks { color: var(--muted); font-size: 11px; flex-shrink: 0; }
+  #docList li button {
+    background: none;
+    border: none;
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 14px;
+  }
+  #docList li button:hover { color: #ff6b6b; }
+  #status { font-size: 12px; color: var(--muted); margin-top: 8px; min-height: 16px; }
+
+  #main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+  }
+  #header {
+    padding: 16px 24px;
+    border-bottom: 1px solid var(--border);
+    font-weight: 600;
+  }
+  #chatWindow {
+    flex: 1;
+    overflow-y: auto;
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  .msg { max-width: 75%; padding: 12px 16px; border-radius: 14px; line-height: 1.5; font-size: 14px; }
+  .msg.user { align-self: flex-end; background: var(--user-bubble); border-bottom-right-radius: 4px; }
+  .msg.bot { align-self: flex-start; background: var(--bot-bubble); border-bottom-left-radius: 4px; }
+  .sources { margin-top: 10px; font-size: 12px; color: var(--muted); }
+  .sources .tag {
+    display: inline-block;
+    background: var(--accent-dim);
+    color: var(--accent);
+    padding: 2px 8px;
+    border-radius: 6px;
+    margin-right: 6px;
+    margin-top: 4px;
+  }
+  details.chunks { margin-top: 8px; font-size: 12px; }
+  details.chunks summary { cursor: pointer; color: var(--muted); }
+  details.chunks .chunk {
+    background: #12141c;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 10px;
+    margin-top: 6px;
+    color: var(--muted);
+  }
+  details.chunks .chunk .meta { color: var(--accent); font-size: 11px; margin-bottom: 4px; }
+
+  #inputBar { padding: 16px 24px; border-top: 1px solid var(--border); display: flex; gap: 10px; }
+  #inputBar textarea {
+    flex: 1;
+    resize: none;
+    background: var(--bot-bubble);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    color: var(--text);
+    padding: 12px 14px;
+    font-size: 14px;
+    font-family: inherit;
+  }
+  #inputBar textarea:focus { outline: none; border-color: var(--accent); }
+  #inputBar button {
+    background: var(--accent);
+    border: none;
+    color: white;
+    padding: 0 20px;
+    border-radius: 10px;
+    cursor: pointer;
+    font-weight: 600;
+  }
+  #inputBar button:disabled { opacity: 0.5; cursor: not-allowed; }
+  .empty { color: var(--muted); text-align: center; margin-top: 60px; font-size: 14px; }
+</style>
+</head>
+<body>
+
+<div id="sidebar">
+  <h2>Documents</h2>
+  <div id="uploadBox">
+    <div>📄 Click to upload<br><span style="font-size:12px;color:var(--muted)">.pdf, .docx, .txt</span></div>
+    <input type="file" id="fileInput" accept=".pdf,.docx,.txt">
+  </div>
+  <div id="status"></div>
+  <ul id="docList"></ul>
+</div>
+
+<div id="main">
+  <div id="header">RAG Chatbot</div>
+  <div id="chatWindow">
+    <div class="empty">Upload a document, then ask a question about it.</div>
+  </div>
+  <div id="inputBar">
+    <textarea id="queryInput" rows="1" placeholder="Ask a question about your documents..."></textarea>
+    <button id="sendBtn">Send</button>
+  </div>
+</div>
+
+<script>
+const API_BASE = "http://localhost:8000";
+const SESSION_ID = "session_" + Math.random().toString(36).slice(2);
+
+const fileInput = document.getElementById("fileInput");
+const uploadBox = document.getElementById("uploadBox");
+const statusEl = document.getElementById("status");
+const docList = document.getElementById("docList");
+const chatWindow = document.getElementById("chatWindow");
+const queryInput = document.getElementById("queryInput");
+const sendBtn = document.getElementById("sendBtn");
+
+uploadBox.addEventListener("click", () => fileInput.click());
+
+fileInput.addEventListener("change", async () => {
+  const file = fileInput.files[0];
+  if (!file) return;
+
+  statusEl.textContent = `Uploading ${file.name}...`;
+  const formData = new FormData();
+  formData.append("file", file);
+
+  try {
+    const res = await fetch(`${API_BASE}/upload`, { method: "POST", body: formData });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || "Upload failed");
+    statusEl.textContent = `${file.name} indexed (${data.chunks_created} chunks)`;
+    await loadDocuments();
+  } catch (err) {
+    statusEl.textContent = `Error: ${err.message}`;
+  }
+  fileInput.value = "";
+});
+
+async function loadDocuments() {
+  try {
+    const res = await fetch(`${API_BASE}/documents`);
+    const docs = await res.json();
+    docList.innerHTML = "";
+    docs.forEach(doc => {
+      const li = document.createElement("li");
+      li.innerHTML = `
+        <span class="fname" title="${doc.filename}">${doc.filename}</span>
+        <span class="chunks">${doc.chunk_count} chunks</span>
+        <button title="Delete">✕</button>
+      `;
+      li.querySelector("button").addEventListener("click", () => deleteDocument(doc.filename));
+      docList.appendChild(li);
+    });
+  } catch (err) {
+    statusEl.textContent = `Error loading documents: ${err.message}`;
+  }
+}
+
+async function deleteDocument(filename) {
+  try {
+    await fetch(`${API_BASE}/documents/${encodeURIComponent(filename)}`, { method: "DELETE" });
+    await loadDocuments();
+  } catch (err) {
+    statusEl.textContent = `Error deleting: ${err.message}`;
+  }
+}
+
+function addMessage(role, content, sources = [], chunks = []) {
+  const emptyMsg = chatWindow.querySelector(".empty");
+  if (emptyMsg) emptyMsg.remove();
+
+  const div = document.createElement("div");
+  div.className = `msg ${role}`;
+
+  const textDiv = document.createElement("div");
+  textDiv.textContent = content;
+  div.appendChild(textDiv);
+
+  if (role === "bot" && sources.length > 0) {
+    const srcDiv = document.createElement("div");
+    srcDiv.className = "sources";
+    srcDiv.innerHTML = "Sources: " + sources.map(s => `<span class="tag">${s}</span>`).join("");
+    div.appendChild(srcDiv);
+  }
+
+  if (role === "bot" && chunks.length > 0) {
+    const details = document.createElement("details");
+    details.className = "chunks";
+    const summary = document.createElement("summary");
+    summary.textContent = `View ${chunks.length} retrieved chunk(s)`;
+    details.appendChild(summary);
+    chunks.forEach(c => {
+      const chunkDiv = document.createElement("div");
+      chunkDiv.className = "chunk";
+      chunkDiv.innerHTML = `<div class="meta">${c.source_file} · chunk #${c.chunk_index} · score ${c.score.toFixed(2)}</div>${c.text}`;
+      details.appendChild(chunkDiv);
+    });
+    div.appendChild(details);
+  }
+
+  chatWindow.appendChild(div);
+  chatWindow.scrollTop = chatWindow.scrollHeight;
+}
+
+async function sendQuery() {
+  const query = queryInput.value.trim();
+  if (!query) return;
+
+  addMessage("user", query);
+  queryInput.value = "";
+  sendBtn.disabled = true;
+
+  const thinkingDiv = document.createElement("div");
+  thinkingDiv.className = "msg bot";
+  thinkingDiv.textContent = "Thinking...";
+  chatWindow.appendChild(thinkingDiv);
+  chatWindow.scrollTop = chatWindow.scrollHeight;
+
+  try {
+    const res = await fetch(`${API_BASE}/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query, session_id: SESSION_ID }),
+    });
+    const data = await res.json();
+    thinkingDiv.remove();
+
+    if (!res.ok) {
+      addMessage("bot", `Error: ${data.detail || "Something went wrong"}`);
+    } else {
+      addMessage("bot", data.answer, data.sources, data.chunks);
+    }
+  } catch (err) {
+    thinkingDiv.remove();
+    addMessage("bot", `Error: ${err.message}`);
+  }
+  sendBtn.disabled = false;
+}
+
+sendBtn.addEventListener("click", sendQuery);
+queryInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.shiftKey) {
+    e.preventDefault();
+    sendQuery();
+  }
+});
+
+loadDocuments();
+</script>
+</body>
+</html>
