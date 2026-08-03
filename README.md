@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # RAG Chatbot
 
 A Retrieval-Augmented Generation chatbot that answers questions using only
